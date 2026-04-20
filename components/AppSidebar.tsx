@@ -55,6 +55,7 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const { height, width } = useWindowDimensions();
   const [isMounted, setIsMounted] = useState(visible);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
   const isCompact = width <= 430 || height <= 860;
@@ -80,6 +81,11 @@ export function AppSidebar({
     badgeBackground: isDark ? '#262626' : '#F8FAFD',
     badgeText: isDark ? '#B7B7B7' : '#4F5668',
     email: isDark ? '#8F8F8F' : '#70798B',
+    collapsibleBackground: isDark ? '#1C1C1C' : '#F8FAFD',
+    collapsibleBorder: isDark ? 'rgba(255,255,255,0.08)' : '#E1E6EF',
+    actionText: isDark ? '#CFCFCF' : '#2A2F39',
+    upgradeBackground: isDark ? '#2A2A2A' : '#101114',
+    upgradeText: '#FFFFFF',
   };
 
   useEffect(() => {
@@ -97,6 +103,12 @@ export function AppSidebar({
       }
     });
   }, [progress, visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      setIsAccountOpen(false);
+    }
+  }, [visible]);
 
   if (!isMounted) {
     return null;
@@ -195,7 +207,7 @@ export function AppSidebar({
             <Feather name={theme.themeIcon === '☀' ? 'sun' : 'moon'} size={isCompact ? 24 : 28} color={palette.icon} />
           </Pressable>
 
-          <View style={[styles.profileCard, isCompact && styles.profileCardCompact, { backgroundColor: palette.profileCard }]}>
+          <Pressable style={[styles.profileCard, isCompact && styles.profileCardCompact, { backgroundColor: palette.profileCard }]} onPress={() => setIsAccountOpen((current) => !current)}>
             <View style={[styles.avatar, isCompact && styles.avatarCompact, { backgroundColor: palette.avatar }]}>
               <View style={[styles.avatarInner, isCompact && styles.avatarInnerCompact]} />
             </View>
@@ -211,8 +223,28 @@ export function AppSidebar({
               <Text style={[styles.profileEmail, isCompact && styles.profileEmailCompact, { color: palette.email }]}>peter.iyitor.live@gmail.com</Text>
             </View>
 
-            <Feather name="chevron-down" size={isCompact ? 20 : 22} color={palette.itemText} />
-          </View>
+            <Feather name={isAccountOpen ? 'chevron-up' : 'chevron-down'} size={isCompact ? 20 : 22} color={palette.itemText} />
+          </Pressable>
+
+          {isAccountOpen ? (
+            <View style={[styles.accountPanel, isCompact && styles.accountPanelCompact, { backgroundColor: palette.collapsibleBackground, borderColor: palette.collapsibleBorder }]}>
+              <Pressable style={[styles.accountAction, isCompact && styles.accountActionCompact]}>
+                <Feather name="message-square" size={isCompact ? 18 : 20} color={palette.itemText} />
+                <Text style={[styles.accountActionText, isCompact && styles.accountActionTextCompact, { color: palette.actionText }]}>Leave feedback</Text>
+              </Pressable>
+
+              <View style={[styles.accountDivider, { backgroundColor: palette.divider }]} />
+
+              <Pressable style={[styles.accountAction, isCompact && styles.accountActionCompact]}>
+                <Feather name="log-out" size={isCompact ? 18 : 20} color={palette.itemText} />
+                <Text style={[styles.accountActionText, isCompact && styles.accountActionTextCompact, { color: palette.actionText }]}>Logout</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <Pressable style={[styles.upgradeButton, isCompact && styles.upgradeButtonCompact, { backgroundColor: palette.upgradeBackground }]}>
+            <Text style={[styles.upgradeButtonText, isCompact && styles.upgradeButtonTextCompact, { color: palette.upgradeText }]}>Upgrade Plan</Text>
+          </Pressable>
         </View>
       </Animated.View>
     </View>
@@ -407,6 +439,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 12,
+  },
+  accountPanel: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  accountPanelCompact: {
+    borderRadius: 18,
+  },
+  accountAction: {
+    minHeight: 56,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  accountActionCompact: {
+    minHeight: 50,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  accountActionText: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '500',
+    letterSpacing: -0.2,
+  },
+  accountActionTextCompact: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  accountDivider: {
+    height: 1,
+    marginHorizontal: 16,
+  },
+  upgradeButton: {
+    minHeight: 54,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  upgradeButtonCompact: {
+    minHeight: 48,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+  },
+  upgradeButtonText: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  upgradeButtonTextCompact: {
+    fontSize: 15,
+    lineHeight: 18,
   },
   avatar: {
     width: 48,

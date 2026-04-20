@@ -60,7 +60,7 @@ export const themes: Record<ThemeName, Theme> = {
   },
   dark: {
     statusBar: 'light',
-    backgroundGradient: ['#16191d', '#0d0e10'],
+    backgroundGradient: ['#060709', '#0f0f11'],
     haloColor: 'rgba(98, 114, 255, 0.18)',
     pageGlow: 'rgba(120, 138, 255, 0.10)',
     themeIcon: '☀',
