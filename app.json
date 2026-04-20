@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Task List Live",
+    "slug": "task-list-live",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    }
+  }
+}
