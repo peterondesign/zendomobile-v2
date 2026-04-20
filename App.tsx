@@ -2,85 +2,88 @@ import { useState } from 'react';
 
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  ColorSchemeName,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+import { SafeAreaView, StyleSheet, useColorScheme, useWindowDimensions } from 'react-native';
 
-import { BrandLogo } from './components/BrandLogo';
+import { GoalScreen } from './screens/GoalScreen';
+import { LandingScreen } from './screens/LandingScreen';
+import { TaskScreen } from './screens/TaskScreen';
+import { ChatScreen } from './screens/ChatScreen';
+import { TasksViewScreen } from './screens/TasksViewScreen';
+import { DayRingViewScreen } from './screens/DayRingViewScreen';
+import { GoalsViewScreen } from './screens/GoalsViewScreen';
+import { GoalDetailScreen } from './screens/GoalDetailScreen';
+import { GoalHistoryScreen } from './screens/GoalHistoryScreen';
+import { SearchScreen } from './screens/SearchScreen';
+import { resolveThemeName, ThemeName, themes } from './theme';
 
-type ThemeName = 'light' | 'dark';
+type ScreenName = 'landing' | 'goal' | 'task' | 'chat' | 'tasks-view' | 'day-ring' | 'goals-view' | 'goal-detail' | 'goal-history' | 'search';
+type GoalStatus = 'Paused' | 'Active';
 
-type Theme = {
-  statusBar: 'light' | 'dark';
-  backgroundGradient: [string, string];
-  haloColor: string;
-  themeIcon: string;
-  iconColor: string;
-  primaryGradient: [string, string];
-  primaryText: string;
-  secondaryBorder: string;
-  secondaryBackground: string;
-  secondaryText: string;
-  logoMode: ThemeName;
+type GoalItem = {
+  id: string;
+  title: string;
+  status: GoalStatus;
 };
 
-const themes: Record<ThemeName, Theme> = {
-  light: {
-    statusBar: 'dark',
-    backgroundGradient: ['#E9F1FF', '#F8F4EE'],
-    haloColor: 'rgba(104, 116, 252, 0.10)',
-    themeIcon: '☾',
-    iconColor: '#101114',
-    primaryGradient: ['#4650F4', '#4047E8'],
-    primaryText: '#FFFFFF',
-    secondaryBorder: '#7B82FF',
-    secondaryBackground: 'rgba(255, 255, 255, 0.18)',
-    secondaryText: '#4450F0',
-    logoMode: 'light',
-  },
-  dark: {
-    statusBar: 'light',
-    backgroundGradient: ['#09111F', '#15192B'],
-    haloColor: 'rgba(98, 114, 255, 0.18)',
-    themeIcon: '☀',
-    iconColor: '#E8ECFF',
-    primaryGradient: ['#6A75FF', '#5562FF'],
-    primaryText: '#F7F8FF',
-    secondaryBorder: 'rgba(141, 153, 255, 0.68)',
-    secondaryBackground: 'rgba(255, 255, 255, 0.05)',
-    secondaryText: '#C7D0FF',
-    logoMode: 'dark',
-  },
+type GoalTaskItem = {
+  id: string;
+  title: string;
+  meta: string;
+  isCompleted: boolean;
 };
 
-function resolveThemeName(
-  colorScheme: ColorSchemeName,
-  preference: ThemeName | null,
-): ThemeName {
-  if (preference) {
-    return preference;
-  }
+const initialGoals: GoalItem[] = [
+  { id: 'goal-better-health', title: 'Better health', status: 'Paused' },
+  { id: 'goal-community-lisbon', title: 'Community in Lisbon', status: 'Paused' },
+  { id: 'goal-zendo-5000', title: '$5000 from Zendo', status: 'Paused' },
+  { id: 'goal-work', title: 'Work', status: 'Paused' },
+];
 
-  return colorScheme === 'dark' ? 'dark' : 'light';
-}
+const initialGoalTasks: Record<string, GoalTaskItem[]> = {
+  'goal-better-health': [
+    { id: 'task-choose-workout', title: 'Choose workout type', meta: '05 Mar · 19:00-19:30', isCompleted: false },
+    { id: 'task-prepare-gear', title: 'Prepare workout gear', meta: '26 Feb · 20:00-20:15', isCompleted: false },
+    { id: 'task-reflect', title: 'Reflect on workout experience', meta: '05 Mar', isCompleted: false },
+    { id: 'task-walk', title: 'Walk', meta: '', isCompleted: false },
+    { id: 'task-workout', title: 'Workout', meta: '', isCompleted: false },
+  ],
+  'goal-community-lisbon': [
+    { id: 'task-meetup', title: 'Find one meetup this week', meta: '06 Mar · 18:00', isCompleted: false },
+  ],
+  'goal-zendo-5000': [
+    { id: 'task-revenue-review', title: 'Review weekly revenue', meta: '08 Mar · 10:00', isCompleted: false },
+  ],
+  'goal-work': [
+    { id: 'task-priorities', title: 'Set top three priorities', meta: 'Tomorrow · 09:00', isCompleted: false },
+  ],
+};
 
 export default function App() {
   const colorScheme = useColorScheme();
+  const { height, width } = useWindowDimensions();
   const [themePreference, setThemePreference] = useState<ThemeName | null>(null);
+  const [screen, setScreen] = useState<ScreenName>('landing');
+  const [goalText, setGoalText] = useState('Find investor for my startup');
+  const [goals, setGoals] = useState<GoalItem[]>(initialGoals);
+  const [goalTasksByGoal, setGoalTasksByGoal] = useState<Record<string, GoalTaskItem[]>>(initialGoalTasks);
+  const [selectedGoalId, setSelectedGoalId] = useState(initialGoals[0].id);
+  const [taskText, setTaskText] = useState('');
+  const [taskComposerFocusVersion, setTaskComposerFocusVersion] = useState(0);
   const themeName = resolveThemeName(colorScheme, themePreference);
   const theme = themes[themeName];
+  const isCompactLayout = width <= 430 || height <= 860;
+  const selectedGoal = goals.find((goal) => goal.id === selectedGoalId) ?? goals[0];
 
   function toggleTheme() {
     setThemePreference((current) => {
       const nextTheme = resolveThemeName(colorScheme, current);
       return nextTheme === 'light' ? 'dark' : 'light';
     });
+  }
+
+  function openNewTaskComposer() {
+    setTaskComposerFocusVersion((current) => current + 1);
+    setScreen('tasks-view');
   }
 
   return (
@@ -93,55 +96,217 @@ export default function App() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style={theme.statusBar} />
 
-        <View style={styles.container}>
-          <View style={styles.topBar}>
-            <Pressable style={styles.themeButton} onPress={toggleTheme}>
-              <Text style={[styles.themeIcon, { color: theme.iconColor }]}>
-                {theme.themeIcon}
-              </Text>
-            </Pressable>
-          </View>
+        {screen === 'landing' ? (
+          <LandingScreen theme={theme} onToggleTheme={toggleTheme} onContinue={() => setScreen('goal')} />
+        ) : null}
 
-          <View style={styles.hero}>
-            <View
-              style={[
-                styles.logoHalo,
-                { backgroundColor: theme.haloColor },
-              ]}
-            />
-            <BrandLogo width={96} height={66.4} mode={theme.logoMode} />
-          </View>
+        {screen === 'goal' ? (
+          <GoalScreen
+            theme={theme}
+            isCompact={isCompactLayout}
+            value={goalText}
+            onChangeText={setGoalText}
+            onToggleTheme={toggleTheme}
+            onBack={() => setScreen('landing')}
+            onContinue={() => {
+              if (goalText.trim()) {
+                setScreen('task');
+              }
+            }}
+          />
+        ) : null}
 
-          <View style={styles.actions}>
-            <Pressable style={styles.actionPressable}>
-              <LinearGradient
-                colors={theme.primaryGradient}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={styles.primaryButton}
-              >
-                <Text style={[styles.primaryButtonText, { color: theme.primaryText }]}>
-                  Get started
-                </Text>
-              </LinearGradient>
-            </Pressable>
+        {screen === 'task' ? (
+          <TaskScreen
+            theme={theme}
+            isCompact={isCompactLayout}
+            value={taskText}
+            onChangeText={setTaskText}
+            onToggleTheme={toggleTheme}
+            onBack={() => setScreen('goal')}
+            onContinue={() => {
+              if (taskText.trim()) {
+                setScreen('chat');
+              }
+            }}
+          />
+        ) : null}
 
-            <Pressable
-              style={[
-                styles.actionPressable,
-                styles.secondaryButton,
+        {screen === 'tasks-view' ? (
+          <TasksViewScreen
+            focusComposerVersion={taskComposerFocusVersion}
+            theme={theme}
+            goalText={goalText}
+            taskText={taskText}
+            onBackToTaskEntry={() => setScreen('task')}
+            onGoToChat={() => setScreen('chat')}
+            onGoToDayRing={() => setScreen('day-ring')}
+            onGoToGoal={() => setScreen('goals-view')}
+            onGoToSearch={() => setScreen('search')}
+            onToggleTheme={toggleTheme}
+          />
+        ) : null}
+
+        {screen === 'day-ring' ? (
+          <DayRingViewScreen
+            theme={theme}
+            onBackToTaskEntry={() => setScreen('task')}
+            onGoToChat={() => setScreen('chat')}
+            onGoToGoal={() => setScreen('goals-view')}
+            onGoToNewTask={openNewTaskComposer}
+            onGoToSearch={() => setScreen('search')}
+            onGoToTasksView={() => setScreen('tasks-view')}
+            onToggleTheme={toggleTheme}
+          />
+        ) : null}
+
+        {screen === 'goals-view' ? (
+          <GoalsViewScreen
+            goals={goals}
+            theme={theme}
+            onBackToGoalEntry={() => setScreen('goal')}
+            onCreateNewGoal={(goalTitle) => {
+              const goalId = `goal-${Date.now()}`;
+
+              setGoals((current) => [
                 {
-                  borderColor: theme.secondaryBorder,
-                  backgroundColor: theme.secondaryBackground,
+                  id: goalId,
+                  title: goalTitle,
+                  status: 'Paused',
                 },
-              ]}
-            >
-              <Text style={[styles.secondaryButtonText, { color: theme.secondaryText }]}>
-                I already have an account
-              </Text>
-            </Pressable>
-          </View>
-        </View>
+                ...current,
+              ]);
+              setGoalTasksByGoal((current) => ({
+                ...current,
+                [goalId]: [],
+              }));
+              setSelectedGoalId(goalId);
+              setScreen('goal-detail');
+            }}
+            onGoToChat={() => setScreen('chat')}
+            onGoToGoalDetail={(goalId) => {
+              setSelectedGoalId(goalId);
+              setScreen('goal-detail');
+            }}
+            onGoToNewTask={openNewTaskComposer}
+            onGoToSearch={() => setScreen('search')}
+            onGoToTasksView={() => setScreen('tasks-view')}
+            onToggleTheme={toggleTheme}
+          />
+        ) : null}
+
+        {screen === 'goal-detail' ? (
+          <GoalDetailScreen
+            goalStatus={selectedGoal.status}
+            goalTasks={goalTasksByGoal[selectedGoal.id] ?? []}
+            goalTitle={selectedGoal.title}
+            theme={theme}
+            onBackToGoalEntry={() => setScreen('goal')}
+            onBackToGoals={() => setScreen('goals-view')}
+            onGoToChat={() => setScreen('chat')}
+            onGoToGoalHistory={() => setScreen('goal-history')}
+            onGoToNewTask={openNewTaskComposer}
+            onGoToSearch={() => setScreen('search')}
+            onGoToTasksView={() => setScreen('tasks-view')}
+            onAddTask={(taskTitle) => {
+              setGoalTasksByGoal((current) => ({
+                ...current,
+                [selectedGoal.id]: [
+                  ...(current[selectedGoal.id] ?? []),
+                  {
+                    id: `task-${Date.now()}`,
+                    title: taskTitle,
+                    meta: '',
+                    isCompleted: false,
+                  },
+                ],
+              }));
+            }}
+            onRenameGoal={(nextTitle) => {
+              setGoals((current) =>
+                current.map((goal) =>
+                  goal.id === selectedGoal.id ? { ...goal, title: nextTitle } : goal,
+                ),
+              );
+            }}
+            onRenameTask={(taskId, nextTitle) => {
+              setGoalTasksByGoal((current) => ({
+                ...current,
+                [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) =>
+                  task.id === taskId ? { ...task, title: nextTitle } : task,
+                ),
+              }));
+            }}
+            onRemoveTask={(taskId) => {
+              setGoalTasksByGoal((current) => ({
+                ...current,
+                [selectedGoal.id]: (current[selectedGoal.id] ?? []).filter((task) => task.id !== taskId),
+              }));
+            }}
+            onToggleTaskCompleted={(taskId) => {
+              setGoalTasksByGoal((current) => ({
+                ...current,
+                [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) =>
+                  task.id === taskId ? { ...task, isCompleted: !task.isCompleted } : task,
+                ),
+              }));
+            }}
+            onToggleGoalStatus={() => {
+              setGoals((current) =>
+                current.map((goal) =>
+                  goal.id === selectedGoal.id
+                    ? { ...goal, status: goal.status === 'Paused' ? 'Active' : 'Paused' }
+                    : goal,
+                ),
+              );
+            }}
+            onToggleTheme={toggleTheme}
+          />
+        ) : null}
+
+        {screen === 'goal-history' ? (
+          <GoalHistoryScreen
+            goalTitle={selectedGoal.title}
+            theme={theme}
+            onBackToGoalDetail={() => setScreen('goal-detail')}
+            onBackToGoalEntry={() => setScreen('goal')}
+            onGoToChat={() => setScreen('chat')}
+            onGoToGoalsView={() => setScreen('goals-view')}
+            onGoToNewTask={openNewTaskComposer}
+            onGoToSearch={() => setScreen('search')}
+            onGoToTasksView={() => setScreen('tasks-view')}
+            onToggleTheme={toggleTheme}
+          />
+        ) : null}
+
+        {screen === 'search' ? (
+          <SearchScreen
+            goalText={goalText}
+            goals={goals}
+            goalTasksByGoal={goalTasksByGoal}
+            taskText={taskText}
+            theme={theme}
+            onGoToChat={() => setScreen('chat')}
+            onGoToGoalsView={() => setScreen('goals-view')}
+            onGoToNewTask={openNewTaskComposer}
+            onGoToTasksView={() => setScreen('tasks-view')}
+            onToggleTheme={toggleTheme}
+          />
+        ) : null}
+
+        {screen === 'chat' ? (
+          <ChatScreen
+            theme={theme}
+            goalText={goalText}
+            taskText={taskText}
+            onBack={() => setScreen('task')}
+            onGoToGoal={() => setScreen('goals-view')}
+            onGoToNewTask={openNewTaskComposer}
+            onGoToSearch={() => setScreen('search')}
+            onGoToTasksView={() => setScreen('tasks-view')}
+            onToggleTheme={toggleTheme}
+          />
+        ) : null}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -153,65 +318,5 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-  },
-  container: {
-    flex: 1,
-    paddingHorizontal: 32,
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
-  topBar: {
-    alignItems: 'flex-end',
-  },
-  themeButton: {
-    width: 30,
-    height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  themeIcon: {
-    fontSize: 20,
-    fontWeight: '500',
-  },
-  hero: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 84,
-  },
-  logoHalo: {
-    position: 'absolute',
-    width: 118,
-    height: 118,
-    borderRadius: 59,
-    transform: [{ scaleX: 1.25 }, { scaleY: 0.92 }],
-  },
-  actions: {
-    gap: 16,
-  },
-  actionPressable: {
-    borderRadius: 34,
-  },
-  primaryButton: {
-    minHeight: 68,
-    borderRadius: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  secondaryButton: {
-    minHeight: 66,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.2,
   },
 });
