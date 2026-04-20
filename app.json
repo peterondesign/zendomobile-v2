@@ -7,7 +7,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "web": {
-      "favicon": "./assets/favicon.svg",
+      "favicon": "./assets/favicon.png",
       "name": "Zendo AI Tasks Goals",
       "shortName": "Zendo"
     },
