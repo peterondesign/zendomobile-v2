@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 
+import { useAuth } from '../auth-context';
 import { Theme } from '../theme';
 
 type SidebarItem = 'chat' | 'tasks' | 'goals';
@@ -53,6 +54,7 @@ export function AppSidebar({
   onSelectGoals,
   onSelectTasks,
 }: AppSidebarProps) {
+  const { isAuthenticating, onLogout, user } = useAuth();
   const { height, width } = useWindowDimensions();
   const [isMounted, setIsMounted] = useState(visible);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
@@ -143,6 +145,9 @@ export function AppSidebar({
     onSelectGoals?.();
   }
 
+  const displayName = user?.name?.trim() || 'Signed in user';
+  const displayEmail = user?.email?.trim() || 'Auth0 account';
+
   return (
     <View style={styles.layer} pointerEvents="box-none">
       <Pressable style={styles.backdrop} onPress={onClose}>
@@ -214,13 +219,13 @@ export function AppSidebar({
 
             <View style={[styles.profileBody, isCompact && styles.profileBodyCompact]}>
               <View style={[styles.profileNameRow, isCompact && styles.profileNameRowCompact]}>
-                <Text style={[styles.profileName, isCompact && styles.profileNameCompact, { color: palette.title }]}>Peter Iyito...</Text>
+                <Text style={[styles.profileName, isCompact && styles.profileNameCompact, { color: palette.title }]} numberOfLines={1}>{displayName}</Text>
                 <View style={[styles.profileBadge, { borderColor: palette.badgeBorder, backgroundColor: palette.badgeBackground }]}>
                   <Text style={[styles.profileBadgeText, isCompact && styles.profileBadgeTextCompact, { color: palette.badgeText }]}>Premium</Text>
                 </View>
               </View>
 
-              <Text style={[styles.profileEmail, isCompact && styles.profileEmailCompact, { color: palette.email }]}>peter.iyitor.live@gmail.com</Text>
+              <Text style={[styles.profileEmail, isCompact && styles.profileEmailCompact, { color: palette.email }]} numberOfLines={1}>{displayEmail}</Text>
             </View>
 
             <Feather name={isAccountOpen ? 'chevron-up' : 'chevron-down'} size={isCompact ? 20 : 22} color={palette.itemText} />
@@ -235,9 +240,9 @@ export function AppSidebar({
 
               <View style={[styles.accountDivider, { backgroundColor: palette.divider }]} />
 
-              <Pressable style={[styles.accountAction, isCompact && styles.accountActionCompact]}>
+              <Pressable style={[styles.accountAction, isCompact && styles.accountActionCompact]} onPress={onLogout} disabled={isAuthenticating}>
                 <Feather name="log-out" size={isCompact ? 18 : 20} color={palette.itemText} />
-                <Text style={[styles.accountActionText, isCompact && styles.accountActionTextCompact, { color: palette.actionText }]}>Logout</Text>
+                <Text style={[styles.accountActionText, isCompact && styles.accountActionTextCompact, { color: palette.actionText }]}>{isAuthenticating ? 'Signing out...' : 'Logout'}</Text>
               </Pressable>
             </View>
           ) : null}

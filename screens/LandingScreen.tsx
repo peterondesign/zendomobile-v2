@@ -6,12 +6,24 @@ import { BrandLogo } from '../components/BrandLogo';
 import { Theme } from '../theme';
 
 type LandingScreenProps = {
+  isBusy?: boolean;
+  primaryActionLabel?: string;
+  secondaryActionLabel?: string;
   theme: Theme;
+  onPrimaryAction: () => void;
+  onSecondaryAction: () => void;
   onToggleTheme: () => void;
-  onContinue: () => void;
 };
 
-export function LandingScreen({ theme, onToggleTheme, onContinue }: LandingScreenProps) {
+export function LandingScreen({
+  isBusy = false,
+  primaryActionLabel = 'Get started',
+  secondaryActionLabel = 'I already have an account',
+  theme,
+  onPrimaryAction,
+  onSecondaryAction,
+  onToggleTheme,
+}: LandingScreenProps) {
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
@@ -23,19 +35,19 @@ export function LandingScreen({ theme, onToggleTheme, onContinue }: LandingScree
       </View>
 
       <View style={styles.hero}>
-        <View style={[styles.logoHalo, { backgroundColor: theme.haloColor }]} />
+        <View />
         <BrandLogo width={96} height={66.4} mode={theme.logoMode} />
       </View>
 
       <View style={styles.actions}>
-        <Pressable style={styles.actionPressable} onPress={onContinue}>
+        <Pressable style={styles.actionPressable} onPress={onPrimaryAction} disabled={isBusy}>
           <LinearGradient
             colors={theme.primaryGradient}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={styles.primaryButton}
           >
-            <Text style={[styles.primaryButtonText, { color: theme.primaryText }]}>Get started</Text>
+            <Text style={[styles.primaryButtonText, { color: theme.primaryText }]}>{isBusy ? 'Connecting...' : primaryActionLabel}</Text>
           </LinearGradient>
         </Pressable>
 
@@ -48,11 +60,10 @@ export function LandingScreen({ theme, onToggleTheme, onContinue }: LandingScree
               backgroundColor: theme.secondaryBackground,
             },
           ]}
-          onPress={onContinue}
+          onPress={onSecondaryAction}
+          disabled={isBusy}
         >
-          <Text style={[styles.secondaryButtonText, { color: theme.secondaryText }]}>
-            I already have an account
-          </Text>
+          <Text style={[styles.secondaryButtonText, { color: theme.secondaryText }]}>{secondaryActionLabel}</Text>
         </Pressable>
       </View>
     </View>

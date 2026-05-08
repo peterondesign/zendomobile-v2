@@ -8,6 +8,8 @@ import { Theme } from '../theme';
 
 type DayRingViewScreenProps = {
   theme: Theme;
+  todayLabel: string;
+  dueTodayCount: number;
   onBackToTaskEntry: () => void;
   onGoToChat: () => void;
   onGoToGoal: () => void;
@@ -19,6 +21,8 @@ type DayRingViewScreenProps = {
 
 export function DayRingViewScreen({
   theme,
+  todayLabel,
+  dueTodayCount,
   onBackToTaskEntry,
   onGoToChat,
   onGoToGoal,
@@ -100,7 +104,7 @@ export function DayRingViewScreen({
           </Pressable>
 
           <View style={[styles.datePill, { backgroundColor: palette.headerButton, borderColor: palette.headerButtonBorder }]}>
-            <Text style={[styles.datePillText, { color: palette.headerText }]}>Sun, 22 Feb</Text>
+            <Text style={[styles.datePillText, { color: palette.headerText }]}>{todayLabel}</Text>
           </View>
 
           <Pressable style={[styles.dateArrowButton, { backgroundColor: palette.headerButton, borderColor: palette.headerButtonBorder }]}>
@@ -126,8 +130,8 @@ export function DayRingViewScreen({
           <Text style={[styles.nowLabel, { color: palette.accent }]}>NOW</Text>
           <View style={[styles.nowDot, { backgroundColor: palette.accent }]} />
 
-          <View style={[styles.eventDot, styles.eventDotFirst, { backgroundColor: palette.accent }]} />
-          <View style={[styles.eventDot, styles.eventDotSecond, { backgroundColor: palette.accent }]} />
+          {dueTodayCount > 0 ? <View style={[styles.eventDot, styles.eventDotFirst, { backgroundColor: palette.accent }]} /> : null}
+          {dueTodayCount > 1 ? <View style={[styles.eventDot, styles.eventDotSecond, { backgroundColor: palette.accent }]} /> : null}
         </View>
       </View>
 

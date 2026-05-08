@@ -24,6 +24,11 @@ type SearchScreenProps = {
   goals: SearchGoal[];
   goalTasksByGoal: Record<string, SearchTask[]>;
   taskText: string;
+  chatMessages: Array<{
+    id: string;
+    content: string;
+    sender: string;
+  }>;
   theme: Theme;
   onGoToChat: () => void;
   onGoToGoalsView: () => void;
@@ -43,6 +48,7 @@ export function SearchScreen({
   goals,
   goalTasksByGoal,
   taskText,
+  chatMessages,
   theme,
   onGoToChat,
   onGoToGoalsView,
@@ -77,8 +83,11 @@ export function SearchScreen({
     return [
       { id: 'task-primary', label: 'TASK', value: taskText.trim() || 'Research potential investors in your industry' },
       { id: 'goal-primary', label: 'GOAL', value: goalText.trim() || 'Find investor for my startup' },
-      { id: 'message-goal', label: 'MESSAGE', value: `Goal created: ${goalText.trim() || 'Find investor for my startup'}` },
-      { id: 'message-task', label: 'MESSAGE', value: `Task created: ${taskText.trim() || 'Research potential investors in your industry'}` },
+      ...chatMessages.map((message) => ({
+        id: `chat-${message.id}`,
+        label: message.sender === 'user' ? 'MESSAGE' : 'AI',
+        value: message.content,
+      })),
       ...flattenedGoalTasks.map((task) => ({
         id: `message-${task.id}`,
         label: 'MESSAGE',
@@ -90,7 +99,7 @@ export function SearchScreen({
         value: goal.title,
       })),
     ];
-  }, [goalTasksByGoal, goalText, goals, taskText]);
+  }, [chatMessages, goalTasksByGoal, goalText, goals, taskText]);
 
   const filteredEntries = entries.filter((entry) => {
     const query = term.trim().toLowerCase();

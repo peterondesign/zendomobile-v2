@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { AppSidebar } from '../components/AppSidebar';
 import { Theme } from '../theme';
@@ -9,6 +9,8 @@ type GoalListItem = {
   id: string;
   title: string;
   status: 'Paused' | 'Active';
+  taskCount: number;
+  completedCount: number;
 };
 
 type GoalsViewScreenProps = {
@@ -123,8 +125,11 @@ export function GoalsViewScreen({
           </View>
         ) : null}
 
-        <View style={[styles.goalList, isCompact && styles.goalListCompact]}>
-          {goals.map((goal) => (
+        <ScrollView style={styles.goalList} contentContainerStyle={[styles.goalListContent, isCompact && styles.goalListCompact]} showsVerticalScrollIndicator={false}>
+          {goals.map((goal) => {
+            const dotCount = goal.taskCount > 0 ? Math.min(goal.taskCount, 7) : 7;
+            const filledDots = goal.taskCount > 0 ? Math.round((goal.completedCount / goal.taskCount) * dotCount) : 0;
+            return (
             <Pressable
               key={goal.id}
               style={[styles.goalRow, isCompact && styles.goalRowCompact, { borderTopColor: palette.divider }]}
@@ -134,8 +139,11 @@ export function GoalsViewScreen({
                 <Text style={[styles.goalTitle, isCompact && styles.goalTitleCompact, { color: palette.goalTitle }]}>{goal.title}</Text>
 
                 <View style={[styles.dotRow, isCompact && styles.dotRowCompact]}>
-                  {Array.from({ length: 7 }).map((_, index) => (
-                    <View key={`${goal.id}-${index}`} style={[styles.progressDot, isCompact && styles.progressDotCompact, { backgroundColor: palette.dot }]} />
+                  {Array.from({ length: dotCount }).map((_, index) => (
+                    <View
+                      key={`${goal.id}-${index}`}
+                      style={[styles.progressDot, isCompact && styles.progressDotCompact, { backgroundColor: index < filledDots ? '#34C759' : palette.dot }]}
+                    />
                   ))}
                 </View>
               </View>
@@ -146,8 +154,9 @@ export function GoalsViewScreen({
                 </Text>
               </View>
             </Pressable>
-          ))}
-        </View>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <AppSidebar
@@ -263,7 +272,11 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   goalList: {
+    flex: 1,
     marginTop: 54,
+  },
+  goalListContent: {
+    paddingBottom: 24,
   },
   goalListCompact: {
     marginTop: 40,

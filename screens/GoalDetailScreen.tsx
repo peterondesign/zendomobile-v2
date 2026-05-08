@@ -208,8 +208,21 @@ export function GoalDetailScreen({
           ) : null}
 
           <View style={[styles.dotRow, isCompact && styles.dotRowCompact]}>
-            {Array.from({ length: 7 }).map((_, index) => (
-              <View key={`detail-dot-${index}`} style={[styles.progressDot, isCompact && styles.progressDotCompact]} />
+            {(() => {
+              const total = goalTasks.length;
+              const dotCount = total > 0 ? Math.min(total, 7) : 7;
+              const filled = total > 0 ? Math.round((goalTasks.filter((t) => t.isCompleted).length / total) * dotCount) : 0;
+              return Array.from({ length: dotCount }).map((_, index) => (
+                <View
+                  key={`detail-dot-${index}`}
+                  style={[
+                    styles.progressDot,
+                    isCompact && styles.progressDotCompact,
+                    { backgroundColor: index < filled ? '#34C759' : '#D5DBE5' },
+                  ]}
+                />
+              ));
+            })()}
             ))}
           </View>
 

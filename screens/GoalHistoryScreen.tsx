@@ -8,6 +8,15 @@ import { Theme } from '../theme';
 
 type GoalHistoryScreenProps = {
   goalTitle: string;
+  history: {
+    days: Array<{
+      date: string;
+      completedTasks: number;
+      tasksDue: number;
+      tasksDone: number;
+    }>;
+    completedTasksLast30Days?: number;
+  } | null;
   theme: Theme;
   onBackToGoalDetail: () => void;
   onBackToGoalEntry: () => void;
@@ -21,6 +30,7 @@ type GoalHistoryScreenProps = {
 
 export function GoalHistoryScreen({
   goalTitle,
+  history,
   theme,
   onBackToGoalDetail,
   onBackToGoalEntry,
@@ -53,6 +63,20 @@ export function GoalHistoryScreen({
     gridDot: isDark ? '#2F2F2F' : '#E0E5EE',
     gridHighlight: isDark ? '#6C7CFF' : '#4D63FF',
   };
+  const historyDays = history?.days ?? [];
+  const gridDays = historyDays.length > 0 ? historyDays.slice(0, 60) : Array.from({ length: 60 }, (_, index) => ({
+    date: `empty-${index}`,
+    completedTasks: 0,
+    tasksDue: 0,
+    tasksDone: 0,
+  }));
+  const monthLabels = Array.from(new Set(
+    historyDays.slice(0, 60).map((day) => {
+      const date = new Date(day.date);
+      return date.toLocaleDateString('en-US', { month: 'short' });
+    }),
+  )).slice(0, 3);
+  const infoDay = historyDays.find((day) => day.completedTasks > 0) ?? historyDays[0] ?? null;
 
   return (
     <View style={styles.container}>
@@ -85,9 +109,9 @@ export function GoalHistoryScreen({
           <View style={[styles.activityDivider, { backgroundColor: palette.divider }]} />
 
           <View style={[styles.monthRow, isCompact && styles.monthRowCompact]}>
-            <Text style={[styles.monthText, isCompact && styles.monthTextCompact, { color: palette.muted }]}>Feb</Text>
-            <Text style={[styles.monthText, isCompact && styles.monthTextCompact, { color: palette.muted }]}>Mar</Text>
-            <Text style={[styles.monthText, isCompact && styles.monthTextCompact, { color: palette.muted }]}>Apr</Text>
+            {(monthLabels.length > 0 ? monthLabels : ['Feb', 'Mar', 'Apr']).map((month) => (
+              <Text key={month} style={[styles.monthText, isCompact && styles.monthTextCompact, { color: palette.muted }]}>{month}</Text>
+            ))}
           </View>
 
           <View style={[styles.gridWrap, isCompact && styles.gridWrapCompact]}>
@@ -100,14 +124,14 @@ export function GoalHistoryScreen({
             <View style={[styles.gridColumn, isCompact && styles.gridColumnCompact]}>
               {Array.from({ length: 6 }).map((_, rowIndex) => (
                 <View key={`goal-history-row-${rowIndex}`} style={[styles.gridRow, isCompact && styles.gridRowCompact]}>
-                  {Array.from({ length: 10 }).map((__, colIndex) => (
+                  {gridDays.slice(rowIndex * 10, rowIndex * 10 + 10).map((day, colIndex) => (
                     <View
                       key={`goal-history-dot-${rowIndex}-${colIndex}`}
                       style={[
                         styles.gridDot,
                         { backgroundColor: palette.gridDot },
                         isCompact && styles.gridDotCompact,
-                        rowIndex === 0 && colIndex === 0 ? [styles.gridDotHighlight, { backgroundColor: palette.gridHighlight }] : null,
+                        day.completedTasks > 0 ? [styles.gridDotHighlight, { backgroundColor: palette.gridHighlight }] : null,
                       ]}
                     />
                   ))}
@@ -121,7 +145,9 @@ export function GoalHistoryScreen({
           <View style={[styles.infoCard, isCompact && styles.infoCardCompact, { backgroundColor: palette.infoCard, borderColor: palette.infoCardBorder }]}>
             <View style={styles.infoHeader}>
               <View>
-                <Text style={[styles.infoDate, isCompact && styles.infoDateCompact, { color: palette.title }]}>Sun, 22 Feb</Text>
+                <Text style={[styles.infoDate, isCompact && styles.infoDateCompact, { color: palette.title }]}>
+                  {infoDay ? new Date(infoDay.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }) : 'No history yet'}
+                </Text>
                 <Text style={[styles.infoSubtitle, isCompact && styles.infoSubtitleCompact, { color: palette.muted }]}>Completed tasks</Text>
               </View>
 
@@ -130,7 +156,9 @@ export function GoalHistoryScreen({
               </Pressable>
             </View>
 
-            <Text style={[styles.infoText, isCompact && styles.infoTextCompact, { color: palette.muted }]}>No completed tasks.</Text>
+            <Text style={[styles.infoText, isCompact && styles.infoTextCompact, { color: palette.muted }]}>
+              {history?.completedTasksLast30Days ? `${history.completedTasksLast30Days} tasks completed in the last 30 days.` : 'No completed tasks.'}
+            </Text>
           </View>
         ) : null}
       </View>

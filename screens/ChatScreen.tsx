@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Feather, Ionicons } from '@expo/vector-icons';
 import {
+  ActivityIndicator,
   Pressable,
   SectionList,
   StyleSheet,
@@ -13,13 +14,47 @@ import {
 import { AppSidebar } from '../components/AppSidebar';
 import { Theme } from '../theme';
 
+type GoalPromptItem = {
+  goalId: string;
+  goalTitle: string;
+  phrase: string;
+  action: string;
+};
+
+type EveningGoalItem = {
+  goalId: string;
+  goalTitle: string;
+  action: string;
+  suggestions: string[];
+};
+
+type GoalProgressItem = {
+  goalId: string;
+  goalTitle: string;
+  status: string;
+  summary?: string;
+};
+
+type GoalSnapItem = {
+  id: string;
+  title: string;
+  status: string;
+  tasks: { id: string; title: string; isCompleted: boolean }[];
+};
+
 type ChatMessage = {
   id: string;
   role: 'ai' | 'user';
-  kind: 'text' | 'summary';
+  kind: 'text' | 'summary' | 'checkin' | 'event' | 'morning' | 'evening' | 'progress';
   text?: string;
   goal?: string;
   task?: string;
+  goals?: GoalSnapItem[];
+  promptGoals?: GoalPromptItem[];
+  eveningGoals?: EveningGoalItem[];
+  progressGoals?: GoalProgressItem[];
+  eventAction?: string;
+  eventTitle?: string;
   sentAt?: Date;
   status?: 'sent' | 'delivered' | 'read';
 };
@@ -35,10 +70,21 @@ type ChatScreenProps = {
   theme: Theme;
   goalText: string;
   taskText: string;
+  goals?: GoalSnapItem[];
+  messages: Array<{
+    id: string;
+    content: string;
+    sender: string;
+    created_at?: string;
+  }>;
+  isSending?: boolean;
   onBack: () => void;
   onGoToGoal: () => void;
   onGoToNewTask: () => void;
   onGoToSearch: () => void;
+  onSendMessage: (content: string) => Promise<void> | void;
+  onCreateGoalTask: (goalId: string, title: string) => Promise<void>;
+  onCompleteGoalTask: (goalId: string, title: string) => Promise<void>;
   onGoToTasksView: () => void;
   onToggleTheme: () => void;
 };
@@ -96,11 +142,124 @@ function getSectionTitle(date: Date) {
   return `${weekday} ${target.getDate()} ${month}`;
 }
 
-function createInitialSections(goalText: string, taskText: string): ChatSection[] {
-  const seeded = [
+function buildSections(messages: ChatScreenProps['messages'], goalText: string, taskText: string, goals?: GoalSnapItem[]): ChatSection[] {
+  const grouped = new Map<string, ChatSection>();
+  const sortedMessages = [...messages].sort((left, right) => {
+    const leftDate = new Date(left.created_at ?? 0).getTime();
+    const rightDate = new Date(right.created_at ?? 0).getTime();
+    return leftDate - rightDate;
+  });
+
+  for (const message of sortedMessages) {
+    const date = message.created_at ? new Date(message.created_at) : new Date();
+    const title = getSectionTitle(date);
+    const key = `${title}-${date.toISOString().slice(0, 10)}`;
+
+    let parsed: Record<string, string> | null = null;
+    try {
+      const trimmed = message.content.trim();
+      if (trimmed.startsWith('{')) {
+        parsed = JSON.parse(trimmed);
+      }
+    } catch {
+      // not JSON, treat as plain text
+    }
+
+    const isUserAction = parsed?.kind === 'user_action';
+    const isMorningPrompt = parsed?.kind === 'morning_prompt';
+    const isEveningFollowUp = parsed?.kind === 'evening_follow_up';
+    const isProgressSnapshot = parsed?.kind === 'goal_progress_snapshot';
+
+    let normalizedMessage: ChatMessage;
+    if (isUserAction) {
+      normalizedMessage = {
+        id: message.id,
+        role: 'ai',
+        kind: 'event',
+        eventAction: (parsed as Record<string, string>)?.action,
+        eventTitle: (parsed as Record<string, string>)?.goalTitle ?? (parsed as Record<string, string>)?.taskTitle ?? (parsed as Record<string, string>)?.text,
+        sentAt: date,
+      };
+    } else if (isMorningPrompt) {
+      const rawGoals = (parsed as Record<string, unknown>)?.goals;
+      normalizedMessage = {
+        id: message.id,
+        role: 'ai',
+        kind: 'morning',
+        promptGoals: Array.isArray(rawGoals) ? (rawGoals as GoalPromptItem[]) : [],
+        sentAt: date,
+      };
+    } else if (isEveningFollowUp) {
+      const rawGoals = (parsed as Record<string, unknown>)?.goals;
+      normalizedMessage = {
+        id: message.id,
+        role: 'ai',
+        kind: 'evening',
+        eveningGoals: Array.isArray(rawGoals) ? (rawGoals as EveningGoalItem[]) : [],
+        sentAt: date,
+      };
+    } else if (isProgressSnapshot) {
+      const rawGoals = (parsed as Record<string, unknown>)?.goals;
+      normalizedMessage = {
+        id: message.id,
+        role: 'ai',
+        kind: 'progress',
+        progressGoals: Array.isArray(rawGoals) ? (rawGoals as GoalProgressItem[]) : [],
+        sentAt: date,
+      };
+    } else {
+      normalizedMessage = {
+        id: message.id,
+        role: message.sender === 'user' ? 'user' : 'ai',
+        kind: 'text',
+        text: message.content,
+        sentAt: date,
+        status: message.sender === 'user' ? 'delivered' : undefined,
+      };
+    }
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        title,
+        date,
+        data: [normalizedMessage],
+      });
+      continue;
+    }
+
+    grouped.get(key)?.data.push(normalizedMessage);
+  }
+
+  const sections = Array.from(grouped.values()).sort((left, right) => left.date.getTime() - right.date.getTime());
+
+  if (sections.length > 0) {
+    return sections;
+  }
+
+  if (goals && goals.length > 0) {
+    return [
+      {
+        key: 'today-checkin',
+        title: 'Today',
+        date: subDays(0),
+        data: [
+          {
+            id: 'today-checkin',
+            role: 'ai' as const,
+            kind: 'checkin' as const,
+            goals,
+          },
+        ],
+      },
+    ];
+  }
+
+  return [
     {
-      daysAgo: 0,
-      key: 'today',
+      key: 'today-summary',
+      title: 'Today',
+      date: subDays(0),
       data: [
         {
           id: 'today-summary',
@@ -111,88 +270,22 @@ function createInitialSections(goalText: string, taskText: string): ChatSection[
         },
       ],
     },
-    {
-      daysAgo: 1,
-      key: 'yesterday',
-      data: [
-        {
-          id: 'yesterday-ai',
-          role: 'ai' as const,
-          kind: 'text' as const,
-          text: 'I can help you turn that into a simple outreach rhythm for the week.',
-          sentAt: createMessageDate(1, 16, 42),
-        },
-      ],
-    },
-    {
-      daysAgo: 2,
-      key: 'weekday-1',
-      data: [
-        {
-          id: 'weekday-1-user',
-          role: 'user' as const,
-          kind: 'text' as const,
-          text: 'Give me one investor-facing task I can finish in under 30 minutes.',
-          sentAt: createMessageDate(2, 11, 18),
-          status: 'delivered' as const,
-        },
-      ],
-    },
-    {
-      daysAgo: 4,
-      key: 'weekday-2',
-      data: [
-        {
-          id: 'weekday-2-ai',
-          role: 'ai' as const,
-          kind: 'text' as const,
-          text: 'Start with a small step that gives you signal quickly, not a perfect long-term plan.',
-          sentAt: createMessageDate(4, 9, 6),
-        },
-      ],
-    },
-    {
-      daysAgo: 8,
-      key: 'older',
-      data: [
-        {
-          id: 'older-user',
-          role: 'user' as const,
-          kind: 'text' as const,
-          text: 'I want to build more consistency around founder outreach.',
-          sentAt: createMessageDate(8, 14, 7),
-          status: 'read' as const,
-        },
-      ],
-    },
   ];
-
-  return seeded.map((section) => {
-    const date = subDays(section.daysAgo);
-
-    return {
-      key: section.key,
-      date,
-      title: getSectionTitle(date),
-      data: section.data,
-    };
-  });
 }
 
-function buildAiReply(input: string) {
-  return `Good prompt. Start by turning "${input}" into one step you can finish today, then I can help you tighten it.`;
-}
-
-export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGoToNewTask, onGoToSearch, onGoToTasksView, onToggleTheme }: ChatScreenProps) {
-  const [sections, setSections] = useState<ChatSection[]>(() => createInitialSections(goalText, taskText));
+export function ChatScreen({ theme, goalText, taskText, goals, messages, isSending = false, onBack, onGoToGoal, onGoToNewTask, onGoToSearch, onSendMessage, onCreateGoalTask, onCompleteGoalTask, onGoToTasksView, onToggleTheme }: ChatScreenProps) {
   const [draft, setDraft] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptPreview, setTranscriptPreview] = useState('');
   const [hasError, setHasError] = useState(false);
+  const [taskDrafts, setTaskDrafts] = useState<Record<string, string>>({});
+  // chipKey = `${goalId}::${title}` → 'loading' | 'done' | 'error'
+  const [chipStates, setChipStates] = useState<Record<string, 'loading' | 'done' | 'error'>>({});
   const listRef = useRef<SectionList<ChatMessage, ChatSection> | null>(null);
   const isInitialRender = useRef(true);
+  const sections = useMemo(() => buildSections(messages, goalText, taskText, goals), [goalText, goals, messages, taskText]);
   const isDark = theme.logoMode === 'dark';
   const palette = {
     header: isDark ? 'rgba(18, 18, 18, 0.94)' : 'rgba(255,255,255,0.96)',
@@ -230,7 +323,8 @@ export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGo
       return;
     }
 
-    const latestSection = sections[0];
+    const lastSectionIndex = sections.length - 1;
+    const latestSection = sections[lastSectionIndex];
 
     if (!latestSection) {
       return;
@@ -238,7 +332,7 @@ export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGo
 
     requestAnimationFrame(() => {
       listRef.current?.scrollToLocation({
-        sectionIndex: 0,
+        sectionIndex: lastSectionIndex,
         itemIndex: Math.max(latestSection.data.length - 1, 0),
         viewPosition: 1,
         animated: true,
@@ -246,57 +340,20 @@ export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGo
     });
   }, [sections]);
 
-  function appendMessages(userInput: string) {
-    const now = new Date();
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      kind: 'text',
-      text: userInput,
-      sentAt: now,
-      status: 'delivered',
-    };
-    const aiMessage: ChatMessage = {
-      id: `ai-${Date.now() + 1}`,
-      role: 'ai',
-      kind: 'text',
-      text: buildAiReply(userInput),
-      sentAt: new Date(now.getTime() + 60 * 1000),
-    };
-
-    setSections((current) => {
-      const todayDate = subDays(0);
-      const todayTitle = getSectionTitle(todayDate);
-      const next = [...current];
-
-      if (next.length > 0 && next[0].title === todayTitle) {
-        next[0] = {
-          ...next[0],
-          data: [...next[0].data, userMessage, aiMessage],
-        };
-        return next;
-      }
-
-      return [
-        {
-          key: `today-${Date.now()}`,
-          title: todayTitle,
-          date: todayDate,
-          data: [userMessage, aiMessage],
-        },
-        ...next,
-      ];
-    });
-  }
-
-  function handleSend() {
+  async function handleSend() {
     if (!hasDraft) {
       return;
     }
 
-    appendMessages(draft.trim());
-    setDraft('');
-    setHasError(false);
+    const nextDraft = draft.trim();
+
+    try {
+      await onSendMessage(nextDraft);
+      setDraft('');
+      setHasError(false);
+    } catch {
+      setHasError(true);
+    }
   }
 
   function handleStartTranscribing() {
@@ -341,6 +398,34 @@ export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGo
     onBack();
   }
 
+  async function handleMorningChip(goalId: string, action: string) {
+    const key = `${goalId}::${action}`;
+    if (chipStates[key] === 'loading' || chipStates[key] === 'done') return;
+    setChipStates((prev) => ({ ...prev, [key]: 'loading' }));
+    try {
+      await onCreateGoalTask(goalId, action);
+      setChipStates((prev) => ({ ...prev, [key]: 'done' }));
+    } catch {
+      setChipStates((prev) => ({ ...prev, [key]: 'error' }));
+    }
+  }
+
+  async function handleEveningChip(goalId: string, suggestion: string) {
+    const key = `${goalId}::${suggestion}`;
+    if (chipStates[key] === 'loading' || chipStates[key] === 'done') return;
+    setChipStates((prev) => ({ ...prev, [key]: 'loading' }));
+    try {
+      await onCompleteGoalTask(goalId, suggestion);
+      setChipStates((prev) => ({ ...prev, [key]: 'done' }));
+    } catch {
+      setChipStates((prev) => ({ ...prev, [key]: 'error' }));
+    }
+  }
+
+  function renderEmptyGoalState(message: string) {
+    return <Text style={[styles.emptyStateText, { color: palette.aiMeta }]}>{message}</Text>;
+  }
+
   const accentColor = hasError ? '#EE5D5D' : isFocused || isTranscribing ? '#4D63FF' : 'transparent';
 
   return (
@@ -371,11 +456,14 @@ export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGo
         stickySectionHeadersEnabled
         contentContainerStyle={styles.chatContent}
         showsVerticalScrollIndicator={false}
-        onScrollToIndexFailed={({ sectionIndex, index }) => {
+        onScrollToIndexFailed={() => {
+          const lastSectionIndex = sections.length - 1;
+          const lastSection = sections[lastSectionIndex];
+          if (!lastSection) return;
           setTimeout(() => {
             listRef.current?.scrollToLocation({
-              sectionIndex,
-              itemIndex: index,
+              sectionIndex: lastSectionIndex,
+              itemIndex: Math.max(lastSection.data.length - 1, 0),
               viewPosition: 1,
               animated: true,
             });
@@ -389,6 +477,346 @@ export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGo
           </View>
         )}
         renderItem={({ item }) => {
+          if (item.kind === 'checkin') {
+            const innerBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+            const innerBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+            const hasGoals = (item.goals?.length ?? 0) > 0;
+            return (
+              <View style={styles.checkinOuter}>
+                {/* Check-in input card */}
+                <View style={[styles.checkinCard, { backgroundColor: palette.aiBubble, borderColor: innerBorder }]}>
+                  <Text style={[styles.checkinQuestion, { color: palette.summaryText }]}>
+                    What did you do today for these goals?
+                  </Text>
+                  {!hasGoals && renderEmptyGoalState('No active goals yet.')}
+                  {item.goals?.map((goal) => (
+                    <View key={goal.id} style={styles.checkinGoalBlock}>
+                      <Text style={[styles.checkinGoalLabel, { color: palette.aiMeta }]}>{goal.title}</Text>
+                      <View style={[styles.checkinGoalInner, { backgroundColor: innerBg, borderColor: innerBorder }]}>
+                        {goal.tasks.length > 0 && (
+                          <View style={styles.checkinChipsRow}>
+                            {goal.tasks.map((task) => (
+                              <View key={task.id} style={[styles.taskChip, { borderColor: innerBorder }]}>
+                                <Text style={[styles.taskChipText, { color: palette.summaryText }]} numberOfLines={1}>
+                                  {task.title}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                        <View style={[styles.addTaskRow, goal.tasks.length > 0 && { borderTopWidth: 1, borderTopColor: innerBorder }]}>
+                          <TextInput
+                            value={taskDrafts[goal.id] ?? ''}
+                            onChangeText={(text) => setTaskDrafts((prev) => ({ ...prev, [goal.id]: text }))}
+                            placeholder="Add task"
+                            placeholderTextColor={palette.inputPlaceholder}
+                            style={[styles.addTaskInput, { color: palette.input }]}
+                          />
+                          <Pressable style={styles.addTaskIconBtn}>
+                            <Feather name="mic" size={18} color={palette.circleIcon} />
+                          </Pressable>
+                          <Pressable
+                            style={styles.addTaskIconBtn}
+                            onPress={() => {
+                              const text = taskDrafts[goal.id]?.trim();
+                              if (text) {
+                                onGoToNewTask();
+                                setTaskDrafts((prev) => ({ ...prev, [goal.id]: '' }));
+                              }
+                            }}
+                          >
+                            <Ionicons
+                              name="send-outline"
+                              size={18}
+                              color={(taskDrafts[goal.id] ?? '').trim() ? '#4D63FF' : palette.circleIcon}
+                            />
+                          </Pressable>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Goal progress section */}
+                <View style={styles.progressSection}>
+                  <Text style={[styles.progressIntro, { color: palette.aiMeta }]}>
+                    Here's your goal progress snapshot for today.
+                  </Text>
+                  <Text style={[styles.progressTitle, { color: palette.summaryText }]}>Goal progress</Text>
+                  <Text style={[styles.progressSubtitle, { color: palette.aiMeta }]}>
+                    Here's how you are doing with your goals so far.
+                  </Text>
+                  <View style={[styles.progressCard, { backgroundColor: palette.aiBubble, borderColor: innerBorder }]}>
+                    {!hasGoals && renderEmptyGoalState('No active goals yet.')}
+                    {item.goals?.map((goal, index) => (
+                      <View
+                        key={goal.id}
+                        style={[
+                          styles.progressRow,
+                          index < (item.goals?.length ?? 0) - 1 && { borderBottomWidth: 1, borderBottomColor: innerBorder },
+                        ]}
+                      >
+                        <View style={styles.progressRowTop}>
+                          <Text style={[styles.progressGoalTitle, { color: palette.summaryText }]} numberOfLines={1}>
+                            {goal.title}
+                          </Text>
+                          <View style={[styles.statusBadge, goal.status === 'Active' ? styles.statusBadgeActive : styles.statusBadgePaused]}>
+                            <Text style={[styles.statusBadgeText, goal.status === 'Active' ? styles.statusBadgeTextActive : styles.statusBadgeTextPaused]}>
+                              {goal.status}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.aiSummaryText, { color: palette.aiMeta }]}>AI summary unavailable right now.</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            );
+          }
+
+          if (item.kind === 'evening') {
+            const innerBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+            const innerBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+            const hasGoals = (item.eveningGoals?.length ?? 0) > 0;
+            return (
+              <View style={[styles.morningCard, { backgroundColor: palette.aiBubble, borderColor: innerBorder }]}>
+                <Text style={[styles.morningQuestion, { color: palette.summaryText }]}>
+                  What did you do today for these goals?
+                </Text>
+                {!hasGoals && renderEmptyGoalState('No active goals yet.')}
+                {item.eveningGoals?.map((g) => (
+                  <View key={g.goalId} style={styles.checkinGoalBlock}>
+                    <Text style={[styles.checkinGoalLabel, { color: palette.aiMeta }]}>{g.goalTitle}</Text>
+                    <View style={[styles.checkinGoalInner, { backgroundColor: innerBg, borderColor: innerBorder }]}>
+                      {g.suggestions.length > 0 && (
+                        <View style={styles.checkinChipsRow}>
+                          {g.suggestions.map((suggestion) => {
+                            const key = `${g.goalId}::${suggestion}`;
+                            const chipState = chipStates[key];
+                            const isDone = chipState === 'done';
+                            const isLoading = chipState === 'loading';
+                            const isChipError = chipState === 'error';
+                            return (
+                              <Pressable
+                                key={key}
+                                style={[
+                                  styles.taskChip,
+                                  { borderColor: innerBorder },
+                                  isDone && styles.chipDone,
+                                  isChipError && styles.chipError,
+                                ]}
+                                onPress={() => void handleEveningChip(g.goalId, suggestion)}
+                                disabled={isLoading || isDone}
+                              >
+                                {isLoading ? (
+                                  <ActivityIndicator size="small" color={palette.summaryText} />
+                                ) : isDone ? (
+                                  <Feather name="check" size={13} color="#34C759" />
+                                ) : (
+                                  <Text style={[
+                                    styles.taskChipText,
+                                    { color: isChipError ? '#EE5D5D' : palette.summaryText },
+                                  ]} numberOfLines={2}>
+                                    {isChipError ? 'Retry' : suggestion}
+                                  </Text>
+                                )}
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      )}
+                      <View style={[styles.addTaskRow, g.suggestions.length > 0 && { borderTopWidth: 1, borderTopColor: innerBorder }]}>
+                        <TextInput
+                          value={taskDrafts[g.goalId] ?? ''}
+                          onChangeText={(text) => setTaskDrafts((prev) => ({ ...prev, [g.goalId]: text }))}
+                          placeholder="Add task"
+                          placeholderTextColor={palette.inputPlaceholder}
+                          style={[styles.addTaskInput, { color: palette.input }]}
+                        />
+                        <Pressable style={styles.addTaskIconBtn}>
+                          <Feather name="mic" size={18} color={palette.circleIcon} />
+                        </Pressable>
+                        <Pressable
+                          style={styles.addTaskIconBtn}
+                          onPress={() => {
+                            const text = taskDrafts[g.goalId]?.trim();
+                            if (text) {
+                              onSendMessage(text);
+                              setTaskDrafts((prev) => ({ ...prev, [g.goalId]: '' }));
+                            }
+                          }}
+                        >
+                          <Ionicons
+                            name="send-outline"
+                            size={18}
+                            color={(taskDrafts[g.goalId] ?? '').trim() ? '#4D63FF' : palette.circleIcon}
+                          />
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          }
+
+          if (item.kind === 'morning') {
+            const innerBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+            const innerBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+            const hasGoals = (item.promptGoals?.length ?? 0) > 0;
+            return (
+              <View style={[styles.morningCard, { backgroundColor: palette.aiBubble, borderColor: innerBorder }]}>
+                <Text style={[styles.morningQuestion, { color: palette.summaryText }]}>
+                  What do you want to do today for these goals?
+                </Text>
+                {!hasGoals && renderEmptyGoalState('No active goals yet.')}
+                {item.promptGoals?.map((g) => (
+                  <View key={g.goalId} style={styles.checkinGoalBlock}>
+                    <Text style={[styles.checkinGoalLabel, { color: palette.aiMeta }]}>{g.goalTitle}</Text>
+                    <View style={[styles.checkinGoalInner, { backgroundColor: innerBg, borderColor: innerBorder }]}>
+                      <View style={styles.checkinChipsRow}>
+                        {(() => {
+                          const key = `${g.goalId}::${g.action}`;
+                          const chipState = chipStates[key];
+                          const isDone = chipState === 'done';
+                          const isLoading = chipState === 'loading';
+                          const isChipError = chipState === 'error';
+                          return (
+                            <Pressable
+                              key={key}
+                              style={[
+                                styles.taskChip,
+                                { borderColor: innerBorder },
+                                isDone && styles.chipDone,
+                                isChipError && styles.chipError,
+                              ]}
+                              onPress={() => void handleMorningChip(g.goalId, g.action)}
+                              disabled={isLoading || isDone}
+                            >
+                              {isLoading ? (
+                                <ActivityIndicator size="small" color={palette.summaryText} />
+                              ) : isDone ? (
+                                <Feather name="check" size={13} color="#34C759" />
+                              ) : (
+                                <Text style={[
+                                  styles.taskChipText,
+                                  { color: isChipError ? '#EE5D5D' : palette.summaryText },
+                                ]} numberOfLines={2}>
+                                  {isChipError ? 'Retry' : g.action}
+                                </Text>
+                              )}
+                            </Pressable>
+                          );
+                        })()}
+                      </View>
+                      <View style={[styles.addTaskRow, { borderTopWidth: 1, borderTopColor: innerBorder }]}>
+                        <TextInput
+                          value={taskDrafts[g.goalId] ?? ''}
+                          onChangeText={(text) => setTaskDrafts((prev) => ({ ...prev, [g.goalId]: text }))}
+                          placeholder="Add task"
+                          placeholderTextColor={palette.inputPlaceholder}
+                          style={[styles.addTaskInput, { color: palette.input }]}
+                        />
+                        <Pressable style={styles.addTaskIconBtn}>
+                          <Feather name="mic" size={18} color={palette.circleIcon} />
+                        </Pressable>
+                        <Pressable
+                          style={styles.addTaskIconBtn}
+                          onPress={() => {
+                            const text = taskDrafts[g.goalId]?.trim();
+                            if (text) {
+                              onSendMessage(text);
+                              setTaskDrafts((prev) => ({ ...prev, [g.goalId]: '' }));
+                            }
+                          }}
+                        >
+                          <Ionicons
+                            name="send-outline"
+                            size={18}
+                            color={(taskDrafts[g.goalId] ?? '').trim() ? '#4D63FF' : palette.circleIcon}
+                          />
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          }
+
+          if (item.kind === 'progress') {
+            const innerBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+            const hasGoals = (item.progressGoals?.length ?? 0) > 0;
+            return (
+              <View style={styles.progressSection}>
+                <Text style={[styles.progressIntro, { color: palette.aiMeta }]}>
+                  Here's your goal progress snapshot for today.
+                </Text>
+                <Text style={[styles.progressTitle, { color: palette.summaryText }]}>Goal progress</Text>
+                <Text style={[styles.progressSubtitle, { color: palette.aiMeta }]}>
+                  Here's how you are doing with your goals so far.
+                </Text>
+                <View style={[styles.progressCard, { backgroundColor: palette.aiBubble, borderColor: innerBorder }]}>
+                  {!hasGoals && renderEmptyGoalState('No active goals yet.')}
+                  {item.progressGoals?.map((g, index) => {
+                    const isOnTrack = !g.status || g.status === 'on_track';
+                    const isActive = g.status === 'active';
+                    return (
+                      <View
+                        key={g.goalId}
+                        style={[
+                          styles.progressRow,
+                          index < (item.progressGoals?.length ?? 0) - 1 && { borderBottomWidth: 1, borderBottomColor: innerBorder },
+                        ]}
+                      >
+                        <View style={styles.progressRowTop}>
+                          <Text style={[styles.progressGoalTitle, { color: palette.aiMeta }]} numberOfLines={1}>
+                            {g.goalTitle}
+                          </Text>
+                          <View style={[
+                            styles.statusBadge,
+                            isOnTrack ? styles.statusBadgeOnTrack : isActive ? styles.statusBadgeActive : styles.statusBadgePaused,
+                          ]}>
+                            <Text style={[
+                              styles.statusBadgeText,
+                              isOnTrack ? styles.statusBadgeTextOnTrack : isActive ? styles.statusBadgeTextActive : styles.statusBadgeTextPaused,
+                            ]}>
+                              {isOnTrack ? 'On Track' : isActive ? 'Active' : 'Paused'}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.progressSummaryText, { color: palette.summaryText }]}>
+                          {g.summary ?? 'AI summary unavailable right now.'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          }
+
+          if (item.kind === 'event') {
+            const isGoal = item.eventAction === 'goal_created';
+            const label = isGoal ? 'Goal created' : 'Task created';
+            const iconName: 'target' | 'check-circle' = isGoal ? 'target' : 'check-circle';
+            return (
+              <View style={styles.eventRow}>
+                <View style={[styles.eventCard, { backgroundColor: palette.aiBubble, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)' }]}>
+                  <View style={styles.eventIconWrap}>
+                    <Feather name={iconName} size={14} color={isGoal ? '#4D63FF' : '#34C759'} />
+                  </View>
+                  <View style={styles.eventBody}>
+                    <Text style={[styles.eventLabel, { color: palette.aiMeta }]}>{label}</Text>
+                    <Text style={[styles.eventTitle, { color: palette.summaryText }]} numberOfLines={2}>{item.eventTitle}</Text>
+                  </View>
+                  <Text style={[styles.eventTime, { color: palette.aiMeta }]}>{formatMessageTime(item.sentAt)}</Text>
+                </View>
+              </View>
+            );
+          }
+
           if (item.kind === 'summary') {
             return (
               <View style={styles.summaryMessage}>
@@ -494,7 +922,7 @@ export function ChatScreen({ theme, goalText, taskText, onBack, onGoToGoal, onGo
                   <Pressable
                     style={[styles.circleButton, hasDraft && styles.circleButtonActive]}
                     onPress={handleSend}
-                    disabled={!hasDraft}
+                    disabled={!hasDraft || isSending}
                   >
                     <Ionicons
                       name="send-outline"
@@ -658,6 +1086,236 @@ const styles = StyleSheet.create({
     color: '#70798B',
     textDecorationLine: 'underline',
     textDecorationColor: '#98A0B1',
+  },
+  // ── Check-in card ──────────────────────────────────────────────────────────
+  morningCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 14,
+    gap: 18,
+    marginBottom: 4,
+  },
+  morningQuestion: {
+    fontSize: 20,
+    lineHeight: 27,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+  },
+  checkinOuter: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    gap: 20,
+  },
+  checkinCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 14,
+    gap: 18,
+  },
+  checkinQuestion: {
+    fontSize: 20,
+    lineHeight: 27,
+    fontWeight: '600',
+    letterSpacing: -0.5,
+  },
+  checkinGoalBlock: {
+    gap: 8,
+  },
+  checkinGoalLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '500',
+    letterSpacing: -0.1,
+  },
+  checkinGoalInner: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  checkinChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  taskChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  chipDone: {
+    borderColor: 'rgba(52,199,89,0.4)',
+    backgroundColor: 'rgba(52,199,89,0.08)',
+    opacity: 0.9,
+  },
+  chipError: {
+    borderColor: 'rgba(238,93,93,0.4)',
+    backgroundColor: 'rgba(238,93,93,0.08)',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+    paddingHorizontal: 4,
+  },
+  taskChipText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+    maxWidth: 200,
+  },
+  addTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  addTaskInput: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  addTaskIconBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // ── Goal progress section ───────────────────────────────────────────────────
+  progressSection: {
+    gap: 6,
+  },
+  progressIntro: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '400',
+    paddingHorizontal: 4,
+  },
+  progressTitle: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+    paddingHorizontal: 4,
+    marginTop: 4,
+  },
+  progressSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '400',
+    paddingHorizontal: 4,
+    marginBottom: 6,
+  },
+  progressCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  progressRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 4,
+  },
+  progressRowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  progressGoalTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '500',
+    flex: 1,
+  },
+  statusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusBadgeActive: {
+    backgroundColor: 'rgba(77, 99, 255, 0.12)',
+  },
+  statusBadgePaused: {
+    backgroundColor: 'rgba(122, 132, 152, 0.15)',
+  },
+  statusBadgeOnTrack: {
+    backgroundColor: 'rgba(52, 199, 89, 0.15)',
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  statusBadgeTextActive: {
+    color: '#4D63FF',
+  },
+  statusBadgeTextPaused: {
+    color: '#7A8498',
+  },
+  statusBadgeTextOnTrack: {
+    color: '#34C759',
+  },
+  aiSummaryText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '400',
+  },
+  progressSummaryText: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '400',
+  },
+  eventRow: {
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  eventCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  eventIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(77,99,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventBody: {
+    flex: 1,
+    gap: 1,
+  },
+  eventLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  eventTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  eventTime: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '400',
+    alignSelf: 'flex-end',
   },
   messageRow: {
     marginBottom: 14,
